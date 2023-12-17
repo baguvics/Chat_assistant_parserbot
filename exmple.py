@@ -48,14 +48,76 @@ class States(StatesGroup):
     edit_name = State()
     edit_description = State()
     edit_date = State()
+    waiting_for_phone = State()
+    waiting_for_name = State()
+
 
 @dp.message_handler(commands=['start'])
-async def cmd_start(message: types.Message):
-    # Устанавливаем начальное состояние
+async def handle_meets(message: types.Message, state: FSMContext):
+    # Проверяем, есть ли пользователь в БД
+    query = 'SELECT * FROM Person WHERE telegramId = ?'
+    existing_person = db_functions.execute_query(query, (message.from_user.id,), fetch_all=True)
 
+    if not existing_person:
+        # Если пользователя нет в БД, запускаем процесс регистрации
+        await States.waiting_for_name.set()
+
+        # Отправляем запрос на ввод имени
+        await message.answer("Добро пожаловать! Для начала, давайте узнаем ваши ФИО.")
+    else:
+        # Если пользователь уже есть в БД, отправляем соответствующее сообщение
+        await States.main_menu.set()
+        await message.answer("Привет huilo! Выберите действие:", reply_markup=main_menu())
+        await States.contact.set()
+
+    # Хендлер, который ждет ввода имени
+
+
+@dp.message_handler(state=States.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
+    # Сохраняем введенное имя в состояние FSM
+    await state.update_data(name=message.text)
+
+    # Отправляем запрос на ввод номера телефона
+    await message.answer(f"Спасибо, {message.text}! Теперь укажите ваш номер телефона.")
+
+    # Переключаем состояние на ожидание ввода номера телефона
+    await States.waiting_for_phone.set()
+
+
+# Хендлер, который ждет ввода номера телефона
+@dp.message_handler(state=States.waiting_for_phone)
+async def process_phone(message: types.Message, state: FSMContext):
+    # Сохраняем введенный номер телефона в состояние FSM
+    await state.update_data(phone=message.text)
+
+    # Извлекаем данные из состояния
+    user_data = await state.get_data()
+
+    # Ваши данные для записи в БД
+    user_id = message.from_user.id
+    name = user_data.get('name')
+    phone = user_data.get('phone')
+
+    # Добавляем пользователя в БД
+    db_functions.add_person_to_db(user_id, name, phone)
+
+    # Завершаем процесс регистрации
+    await state.finish()
+
+    # Отправляем сообщение с благодарностью
     await States.main_menu.set()
-    await message.answer("Привет! Выберите действие:", reply_markup=main_menu())
+    await message.answer("Спасибо за регистрацию! ", reply_markup=main_menu())
     await States.contact.set()
+
+
+# @dp.message_handler(commands=['start'])
+# async def cmd_start(message: types.Message):
+#     # Устанавливаем начальное состояние
+#
+#     await States.main_menu.set()
+#     await message.answer("Привет! Выберите действие:", reply_markup=main_menu())
+#     await States.contact.set()
 
 @dp.message_handler(content_types=types.ContentType.CONTACT, state=States.contact)
 async def contacts(msg: types.Message, state: FSMContext):
