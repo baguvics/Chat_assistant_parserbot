@@ -45,6 +45,9 @@ class States(StatesGroup):
     delete_event = State()
     edit_event = State()
     add_event = State()
+    edit_name = State()
+    edit_description = State()
+    edit_date = State()
 
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
@@ -97,8 +100,8 @@ async def handle_event_button(callback_query: types.CallbackQuery, state: FSMCon
     keyboard.add(InlineKeyboardButton("Записаться", callback_data=f"event_signup:{event_id}"))
     buttons = []
     if str(callback_query.from_user.id) in ADMIN:
-        buttons.append(InlineKeyboardButton("Изменить", callback_data='back'))
-        buttons.append(InlineKeyboardButton("Удалить", callback_data='back'))
+        buttons.append(InlineKeyboardButton("Изменить", callback_data=f'edit_event:{event_id}'))
+        buttons.append(InlineKeyboardButton("Удалить", callback_data=f'delete_event:{event_id}'))
     buttons.append(InlineKeyboardButton("Назад", callback_data='back'))
     keyboard.add(*buttons)
     await callback_query.message.edit_text(f"Информация о мероприятии:{event_id}", reply_markup=keyboard)
@@ -121,8 +124,51 @@ async def handle_delete_event(callback_query: types.CallbackQuery, state: FSMCon
     event_id = int(callback_query.data.split(":")[1])
     if str(callback_query.from_user.id) in ADMIN:
         db_functions.delete_event_by_id(event_id)
-    await States.main_menu.set()
     await callback_query.message.edit_text(f"Вы успешно удалили мероприятие!", reply_markup=main_menu())
+
+@dp.callback_query_handler(lambda query: query.data.startswith("edit_event:"), state='*')
+async def handle_edit_event(callback_query: types.CallbackQuery, state: FSMContext):
+    await States.edit_event.set()
+    event_id = int(callback_query.data.split(":")[1])
+    await callback_query.message.edit_text(f"Выберите что вы хотите изменить", reply_markup=edit_event(event_id))
+
+@dp.callback_query_handler(lambda query: query.data.startswith("edit_name:"), state='*')
+async def handle_edit_name(callback_query: types.CallbackQuery, state: FSMContext):
+    event_id = int(callback_query.data.split(":")[1])
+    await States.edit_name.set()
+    await state.update_data(event_id=event_id)
+    await callback_query.message.edit_text("Введите важное предложение:")
+
+@dp.message_handler(state=States.edit_name)
+async def process_suggestion(message: types.Message, state: FSMContext):
+    new_name = message.text
+    state_data = await state.get_data()
+    event_id = state_data.get('event_id')
+    if str(message.from_user.id) in ADMIN:
+        db_functions.update_event_by_id(event_id, new_name=new_name)
+    await message.answer("Вы успешно изменили название")
+
+    # add_suggestion_to_db(message.chat.id, suggestion)
+    #
+    # await state.finish()
+    #
+    #
+    # print('hahahha')
+    # await States.edit_name.set()
+    # print('hahahha')
+    # event_id = int(callback_query.data.split(":")[1])
+    # if str(callback_query.from_user.id) in ADMIN:
+    #     print('hahahha')
+    #     db_functions.update_event_by_id(event_id)
+    # await callback_query.message.edit_text(f"Вы успешно изменили название", reply_markup=main_menu())
+
+@dp.callback_query_handler(lambda query: query.data.startswith("back:"), state='*')
+async def process_back_to_edit_event(callback_query: types.CallbackQuery, state: FSMContext):
+    await States.edit_event.set()
+    event_id = int(callback_query.data.split(":")[1])
+    await callback_query.answer()
+    await callback_query.message.edit_text('', reply_markup=edit_event(event_id))
+
 
 @dp.callback_query_handler(lambda c: c.data == 'news', state='*')
 async def process_news_menu(callback_query: types.CallbackQuery, state: FSMContext):
@@ -166,6 +212,7 @@ async def process_back_to_events_from_description(callback_query: types.Callback
     await callback_query.message.edit_text(list_of_events, reply_markup=sign_up_for_event(list_of_events))
 
 
+
 def main_menu():
     keyboard = InlineKeyboardMarkup(row_width=1)
     buttons = [
@@ -200,6 +247,17 @@ def list_of_events():
         InlineKeyboardButton("Записаться", callback_data='sign_up'),
         InlineKeyboardButton("Список мероприятии", callback_data='list_of_events'),
         InlineKeyboardButton("Назад", callback_data='back')
+    ]
+    keyboard.add(*buttons)
+    return keyboard
+
+def edit_event(event_id):
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    buttons = [
+        InlineKeyboardButton("Изменить название", callback_data=f'edit_name:{event_id}'),
+        InlineKeyboardButton("Изменить дату", callback_data=f'edit_date:{event_id}'),
+        InlineKeyboardButton("Изменить описание", callback_data=f'edit_description:{event_id}'),
+        InlineKeyboardButton("Назад", callback_data=f'back:{event_id}')
     ]
     keyboard.add(*buttons)
     return keyboard
@@ -259,7 +317,6 @@ async def start_adding_event(message: Message):
 if __name__ == '__main__':
     if not os.path.exists(DB_PATH):
         dbinit.create_bd()
-
     executor.start_polling(dp, skip_updates=False)
 
 
