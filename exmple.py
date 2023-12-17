@@ -50,6 +50,7 @@ class States(StatesGroup):
     edit_date = State()
     waiting_for_phone = State()
     waiting_for_name = State()
+    waiting_for_suggestion = State()
 
 
 @dp.message_handler(commands=['start'])
@@ -67,7 +68,7 @@ async def handle_meets(message: types.Message, state: FSMContext):
     else:
         # Если пользователь уже есть в БД, отправляем соответствующее сообщение
         await States.main_menu.set()
-        await message.answer("Привет huilo! Выберите действие:", reply_markup=main_menu())
+        await message.answer("Привет! Выберите действие:", reply_markup=main_menu())
         await States.contact.set()
 
     # Хендлер, который ждет ввода имени
@@ -199,7 +200,7 @@ async def handle_edit_name(callback_query: types.CallbackQuery, state: FSMContex
     event_id = int(callback_query.data.split(":")[1])
     await States.edit_name.set()
     await state.update_data(event_id=event_id)
-    await callback_query.message.edit_text("Введите важное предложение:")
+    await callback_query.message.edit_text("Введите новое название")
 
 @dp.message_handler(state=States.edit_name)
 async def process_suggestion(message: types.Message, state: FSMContext):
@@ -209,6 +210,18 @@ async def process_suggestion(message: types.Message, state: FSMContext):
     if str(message.from_user.id) in ADMIN:
         db_functions.update_event_by_id(event_id, new_name=new_name)
     await message.answer("Вы успешно изменили название")
+
+
+
+@dp.message_handler(state=States.waiting_for_suggestion)
+async def process_suggestion(message: types.Message, state: FSMContext):
+    suggestion = message.text
+
+    db_functions.add_suggestion_to_db(message.chat.id, suggestion)
+
+    await state.finish()
+
+    await message.answer("Спасибо за предложение! Оно было успешно добавлено в базу данных.",  reply_markup=main_menu())
 
     # add_suggestion_to_db(message.chat.id, suggestion)
     #
@@ -241,9 +254,13 @@ async def process_news_menu(callback_query: types.CallbackQuery, state: FSMConte
 
 @dp.callback_query_handler(lambda c: c.data == 'suggestions', state='*')
 async def process_suggestions_menu(callback_query: types.CallbackQuery, state: FSMContext):
-    await States.suggestions.set()
+    await States.waiting_for_suggestion.set()
     await callback_query.answer()
-    await callback_query.message.edit_text("Что бы вы предложили", reply_markup=suggestions())
+    await callback_query.message.edit_text("Что бы вы предложили")
+
+
+
+
 
 
 @dp.callback_query_handler(lambda c: c.data == 'faq', state='*')
@@ -341,7 +358,7 @@ def sign_up_for_event(list):
 def suggestions():
     keyboard = InlineKeyboardMarkup(row_width=1)
     buttons = [
-        InlineKeyboardButton("ввод данных", callback_data='event_list'),
+        InlineKeyboardButton("ввод данных", callback_data='add_suggestion'),
         InlineKeyboardButton("Назад", callback_data='back')
     ]
     keyboard.add(*buttons)
